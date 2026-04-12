@@ -1,0 +1,134 @@
+<!--
+@license
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>URL Content Summarizer</title>
+  </head>
+  <body>
+    <script>
+      // Minimum character count for a content container to be considered non-empty.
+      const MIN_CONTENT_LENGTH = 200;
+      // Maximum characters returned to the LLM to avoid context overflow.
+      const MAX_CONTENT_LENGTH = 8000;
+      // Minimum character count for the final extracted text to be considered meaningful.
+      const MIN_MEANINGFUL_TEXT_LENGTH = 50;
+
+      /**
+       * Extracts readable text from an HTML string by removing scripts,
+       * styles, and other non-content elements, then cleans up whitespace.
+       * @param {string} html - The raw HTML string.
+       * @returns {string} The cleaned plain text.
+       */
+      function extractTextFromHtml(html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        // Remove non-content elements
+        const selectorsToRemove = [
+          'script', 'style', 'noscript', 'nav', 'header', 'footer',
+          'aside', 'form', 'button', 'iframe', 'img', 'svg',
+          '[role="navigation"]', '[role="banner"]', '[role="complementary"]',
+        ];
+        selectorsToRemove.forEach((selector) => {
+          doc.querySelectorAll(selector).forEach((el) => el.remove());
+        });
+
+        // Prefer main content containers when available
+        const contentSelectors = ['main', 'article', '[role="main"]', '.content', '#content', 'body'];
+        let textContent = '';
+        for (const selector of contentSelectors) {
+          const el = doc.querySelector(selector);
+          if (el) {
+            textContent = el.innerText || el.textContent || '';
+            if (textContent.trim().length > MIN_CONTENT_LENGTH) break;
+          }
+        }
+
+        // Collapse excessive whitespace and limit length to avoid context overflow
+        return textContent
+          .replace(/[ \t]+/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
+          .substring(0, MAX_CONTENT_LENGTH);
+      }
+
+      /**
+       * Fetches content from the given URL and returns the extracted text.
+       * Tries a CORS proxy as a fallback when a direct fetch fails.
+       * @param {string} url - The URL to fetch.
+       * @returns {Promise<string>} The extracted plain text.
+       */
+      async function fetchUrlContent(url) {
+        // Attempt a direct fetch first
+        try {
+          const response = await fetch(url, {headers: {Accept: 'text/html'}});
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const html = await response.text();
+          return extractTextFromHtml(html);
+        } catch (directError) {
+          // Fall back to a public CORS proxy
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+          const proxyResponse = await fetch(proxyUrl);
+          if (!proxyResponse.ok) throw new Error(`Proxy HTTP ${proxyResponse.status}`);
+          const proxyData = await proxyResponse.json();
+          if (!proxyData.contents) throw new Error('No content returned from proxy.');
+          return extractTextFromHtml(proxyData.contents);
+        }
+      }
+
+      window['ai_edge_gallery_get_result'] = async (data) => {
+        try {
+          const jsonData = JSON.parse(data);
+          const url = (jsonData.url || '').trim();
+
+          if (!url) {
+            return JSON.stringify({error: 'No URL provided.'});
+          }
+
+          // Basic URL validation
+          let parsedUrl;
+          try {
+            parsedUrl = new URL(url);
+          } catch (_) {
+            return JSON.stringify({error: `Invalid URL: "${url}". Please provide a valid URL including the scheme (e.g. https://).`});
+          }
+
+          if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+            return JSON.stringify({error: `Unsupported URL scheme "${parsedUrl.protocol}". Only http and https are supported.`});
+          }
+
+          const text = await fetchUrlContent(url);
+
+          if (!text || text.trim().length < MIN_MEANINGFUL_TEXT_LENGTH) {
+            return JSON.stringify({error: 'Could not extract meaningful text content from the provided URL.'});
+          }
+
+          return JSON.stringify({result: text});
+        } catch (e) {
+          console.error(e);
+          return JSON.stringify({error: `Failed to fetch URL content: ${e.message}`});
+        }
+      };
+    </script>
+  </body>
+</html>
