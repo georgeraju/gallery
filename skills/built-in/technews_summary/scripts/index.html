@@ -67,7 +67,7 @@ limitations under the License.
        * Groups an array of news articles by their category field.
        * Each article may belong to multiple categories.
        * @param {Object[]} articles - Array of article objects from the API.
-       * @returns {Object} Map of category label to array of article summaries.
+       * @returns {Object} Map of category label to array of article titles.
        */
       function categorizeArticles(articles) {
         const categoryLabels = {
@@ -88,24 +88,22 @@ limitations under the License.
 
         for (const article of articles) {
           const title = (article.title || '').trim();
-          const description = (article.description || article.content || '').trim();
           if (!title) continue;
 
-          const summary = description ? `${title}: ${description}` : title;
           const articleCategories = article.category || [];
 
           let placed = false;
           for (const cat of articleCategories) {
             const label = categoryLabels[cat.toLowerCase()];
             if (label && categorized[label]) {
-              categorized[label].push(summary);
+              categorized[label].push(title);
               placed = true;
             }
           }
 
           // If the article has no recognized category, add it to Breaking News as a fallback
           if (!placed) {
-            categorized['Breaking News'].push(summary);
+            categorized['Breaking News'].push(title);
           }
         }
 
@@ -113,8 +111,8 @@ limitations under the License.
       }
 
       /**
-       * Formats the categorized news into a plain-text summary string.
-       * @param {Object} categorized - Map of category label to array of summaries.
+       * Formats the categorized news into a plain-text string.
+       * @param {Object} categorized - Map of category label to array of article titles.
        * @returns {string} Formatted text ready for the LLM.
        */
       function formatCategorizedNews(categorized) {
