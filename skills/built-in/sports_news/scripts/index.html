@@ -1,0 +1,159 @@
+<!--
+@license
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================
+-->
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sports News Summary</title>
+  </head>
+  <body>
+    <script>
+      /**
+       * Reads the newsdata.io API key from the key.txt file in the scripts folder.
+       * @returns {Promise<string>} The API key string.
+       */
+      async function readApiKey() {
+        const response = await fetch('key.txt');
+        if (!response.ok) {
+          throw new Error(`Failed to read key.txt: HTTP ${response.status}`);
+        }
+        const key = (await response.text()).trim();
+        if (!key || key === 'YOUR_NEWSDATA_IO_API_KEY_HERE') {
+          throw new Error(
+            'API key not configured. Please replace the placeholder in scripts/key.txt with your newsdata.io API key.'
+          );
+        }
+        return key;
+      }
+
+      /**
+       * Fetches the latest sports news from newsdata.io using the /latest endpoint
+       * with the sports category filter.
+       * @param {string} apiKey - The newsdata.io API key.
+       * @returns {Promise<Object[]>} Array of news article objects.
+       */
+      async function fetchSportsNews(apiKey) {
+        const url =
+          `https://newsdata.io/api/1/latest?apikey=${encodeURIComponent(apiKey)}` +
+          `&language=en&category=sports&removeduplicate=1`;
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`newsdata.io API error: HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        if (data.status !== 'success') {
+          throw new Error(`newsdata.io API returned status: ${data.status}. Message: ${data.message || 'unknown error'}`);
+        }
+        return data.results || [];
+      }
+
+      /**
+       * Detects the sport sub-category for an article based on keywords in the title
+       * and description, since newsdata.io returns all sports under the "sports" category.
+       * @param {Object} article - A news article object from the API.
+       * @returns {string} The detected sport label.
+       */
+      function detectSport(article) {
+        const text = `${article.title || ''} ${article.description || ''}`.toLowerCase();
+
+        if (/football|\bsoccer\b|\bfifa\b|\bpremier league\b|\bla liga\b|\bbundesliga\b|\bchampions league\b|\bnfl\b/.test(text)) {
+          return 'Football';
+        }
+        if (/basketball\b|\bnba\b|\bncaa basketball\b/.test(text)) {
+          return 'Basketball';
+        }
+        if (/tennis\b|\bwimbledon\b|\bus open tennis\b|\bfrench open\b|\baustralian open\b|\batp\b|\bwta\b/.test(text)) {
+          return 'Tennis';
+        }
+        if (/cricket\b|\bipl\b|\btest match\b|\bodi\b|\bt20\b|\bbcci\b|\bicc\b/.test(text)) {
+          return 'Cricket';
+        }
+
+        return 'Other Sports';
+      }
+
+      /**
+       * Groups an array of sports news articles by detected sport category.
+       * @param {Object[]} articles - Array of article objects from the API.
+       * @returns {Object} Map of sport label to array of article titles.
+       */
+      function categorizeArticles(articles) {
+        const categorized = {
+          'Football': [],
+          'Basketball': [],
+          'Tennis': [],
+          'Cricket': [],
+          'Other Sports': [],
+        };
+
+        for (const article of articles) {
+          const title = (article.title || '').trim();
+          if (!title) continue;
+
+          const sport = detectSport(article);
+          categorized[sport].push(title);
+        }
+
+        return categorized;
+      }
+
+      /**
+       * Formats the categorized sports news into a plain-text string.
+       * @param {Object} categorized - Map of sport label to array of article titles.
+       * @returns {string} Formatted text ready for the LLM.
+       */
+      function formatCategorizedNews(categorized) {
+        const lines = [];
+        for (const [category, items] of Object.entries(categorized)) {
+          if (items.length === 0) continue;
+          lines.push(`## ${category}`);
+          for (const item of items) {
+            lines.push(`- ${item}`);
+          }
+          lines.push('');
+        }
+        return lines.join('\n').trim();
+      }
+
+      window['ai_edge_gallery_get_result'] = async (data) => {
+        try {
+          const apiKey = await readApiKey();
+          const articles = await fetchSportsNews(apiKey);
+
+          if (!articles.length) {
+            return JSON.stringify({ error: 'No sports news articles returned from the API.' });
+          }
+
+          const categorized = categorizeArticles(articles);
+          const formattedNews = formatCategorizedNews(categorized);
+
+          if (!formattedNews) {
+            return JSON.stringify({ error: 'No articles could be categorized.' });
+          }
+
+          return JSON.stringify({ result: formattedNews });
+        } catch (e) {
+          console.error(e);
+          return JSON.stringify({ error: `Failed to fetch sports news: ${e.message}` });
+        }
+      };
+    </script>
+  </body>
+</html>
