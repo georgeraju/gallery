@@ -1,21 +1,33 @@
-# Tech News Summary Skill
+---
+name: technews_summary
+description: Fetch and summarize the latest news headlines by category using the newsdata.io API.
+---
 
-This skill fetches the latest news from the newsdata.io API and summarizes them into bullet points by category.
+# Tech News Summary
+
+Fetches the latest news from newsdata.io and presents them organized by category so you can summarize them into bullet points.
 
 ## Categories
+
 - **Breaking News**
 - **Business**
 - **Entertainment**
 - **Technology**
 - **Environment**
 
-## API Usage
-- The API key for accessing newsdata.io is stored in `key.txt` in this folder.
-
 ## Setup
-- To set up the skill, ensure the following:
-  1. Obtain an API key from newsdata.io.
-  2. Save the API key in `key.txt`.
 
-## License
-This project is licensed under the MIT License.
+1. Obtain a free API key from [newsdata.io](https://newsdata.io/).
+2. Replace the placeholder in `scripts/key.txt` with your API key.
+
+## Examples
+
+- "What are the latest tech news headlines?"
+- "Summarize today's breaking news"
+- "Give me a quick update on business news"
+
+## Instructions
+
+Call the `run_js` tool with `index.html`. No additional `data` fields are required — the skill will automatically fetch the latest news.
+
+Summarize the returned news articles into concise bullet points organized under each category heading. Keep each bullet point to one short sentence.
