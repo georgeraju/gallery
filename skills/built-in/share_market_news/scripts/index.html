@@ -1,0 +1,252 @@
+<!--
+@license
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================
+-->
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Share Market News</title>
+  </head>
+  <body>
+    <script>
+      /**
+       * Maps common market/country name mentions (including exchange names) to
+       * their ISO 3166-1 alpha-2 country codes used by newsdata.io.
+       */
+      const MARKET_TO_COUNTRY = {
+        // United States
+        us: 'us', usa: 'us', 'united states': 'us', america: 'us',
+        nasdaq: 'us', 'new york stock exchange': 'us', nyse: 'us',
+        dow: 'us', 'dow jones': 'us', 's&p': 'us', 's&p 500': 'us',
+        sp500: 'us', 'wall street': 'us',
+
+        // United Kingdom
+        uk: 'gb', 'united kingdom': 'gb', britain: 'gb', england: 'gb',
+        london: 'gb', lse: 'gb', ftse: 'gb', 'ftse 100': 'gb',
+
+        // India
+        india: 'in', indian: 'in',
+        sensex: 'in', nifty: 'in', bse: 'in', nse: 'in', mumbai: 'in',
+
+        // Japan
+        japan: 'jp', japanese: 'jp',
+        nikkei: 'jp', 'tokyo stock exchange': 'jp', tse: 'jp',
+
+        // Germany
+        germany: 'de', german: 'de',
+        dax: 'de', 'frankfurt stock exchange': 'de',
+
+        // France
+        france: 'fr', french: 'fr',
+        cac: 'fr', 'cac 40': 'fr', paris: 'fr',
+
+        // China
+        china: 'cn', chinese: 'cn',
+        shanghai: 'cn', 'shanghai composite': 'cn', 'hong kong': 'hk',
+        'hang seng': 'hk', hsi: 'hk', hk: 'hk',
+
+        // Australia
+        australia: 'au', australian: 'au',
+        asx: 'au', 'australian securities exchange': 'au',
+
+        // Canada
+        canada: 'ca', canadian: 'ca',
+        tsx: 'ca', 'toronto stock exchange': 'ca',
+
+        // Singapore
+        singapore: 'sg',
+        sgx: 'sg',
+
+        // South Korea
+        'south korea': 'kr', korea: 'kr', korean: 'kr',
+        kospi: 'kr', kosdaq: 'kr',
+
+        // Brazil
+        brazil: 'br', brazilian: 'br',
+        bovespa: 'br', b3: 'br',
+
+        // Europe (generic — default to Germany as a proxy)
+        europe: 'de', european: 'de', eu: 'de',
+      };
+
+      /**
+       * Reads the newsdata.io API key from key.txt.
+       * @returns {Promise<string>}
+       */
+      async function readApiKey() {
+        const response = await fetch('key.txt');
+        if (!response.ok) {
+          throw new Error(`Failed to read key.txt: HTTP ${response.status}`);
+        }
+        const key = (await response.text()).trim();
+        if (!key || key === 'YOUR_NEWSDATA_IO_API_KEY_HERE') {
+          throw new Error(
+            'API key not configured. Please replace the placeholder in scripts/key.txt with your newsdata.io API key.'
+          );
+        }
+        return key;
+      }
+
+      /**
+       * Resolves a free-form user prompt to a newsdata.io country code.
+       * Falls back to 'us' (United States) when no match is found.
+       * @param {string} prompt
+       * @returns {{ countryCode: string, marketLabel: string }}
+       */
+      function resolveMarket(prompt) {
+        const lower = (prompt || '').toLowerCase();
+
+        for (const [key, code] of Object.entries(MARKET_TO_COUNTRY)) {
+          // Use word-boundary-aware matching to avoid false positives
+          if (lower.includes(key)) {
+            // Derive a human-readable label
+            const label = key.charAt(0).toUpperCase() + key.slice(1);
+            return { countryCode: code, marketLabel: label };
+          }
+        }
+
+        // Default fallback
+        return { countryCode: 'us', marketLabel: 'US' };
+      }
+
+      /**
+       * Fetches the latest business/finance news from newsdata.io for a country.
+       * @param {string} apiKey
+       * @param {string} countryCode  ISO 3166-1 alpha-2 code
+       * @returns {Promise<Object[]>}
+       */
+      async function fetchMarketNews(apiKey, countryCode) {
+        const url =
+          `https://newsdata.io/api/1/latest?apikey=${encodeURIComponent(apiKey)}` +
+          `&language=en&category=business&country=${encodeURIComponent(countryCode)}&removeduplicate=1`;
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`newsdata.io API error: HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        if (data.status !== 'success') {
+          throw new Error(
+            `newsdata.io API returned status: ${data.status}. Message: ${data.message || 'unknown error'}`
+          );
+        }
+        return data.results || [];
+      }
+
+      /**
+       * Classifies a single article into a market sub-section based on keywords
+       * in its title and description.
+       * @param {Object} article
+       * @returns {string}
+       */
+      function classifyArticle(article) {
+        const text = `${article.title || ''} ${article.description || ''}`.toLowerCase();
+
+        if (/\bstock[s]?\b|\bequit(y|ies)\b|\bshare[s]?\b|\bipo\b|\blisting\b/.test(text)) {
+          return 'Stocks & Equities';
+        }
+        if (/\bcrypto\b|\bbitcoin\b|\bethereum\b|\bblockchain\b|\bdigital asset/.test(text)) {
+          return 'Crypto & Digital Assets';
+        }
+        if (/\bcommodit(y|ies)\b|\bgold\b|\bsilver\b|\boil\b|\bcrude\b|\bnatural gas\b|\bwheat\b/.test(text)) {
+          return 'Commodities';
+        }
+        if (/\bcurren(cy|cies)\b|\bforex\b|\bexchange rate\b|\bdollar\b|\beuro\b|\byen\b|\bpound\b/.test(text)) {
+          return 'Currencies & Forex';
+        }
+        if (/\bbond[s]?\b|\byield\b|\btreasur(y|ies)\b|\bfixed income\b|\bdebt/.test(text)) {
+          return 'Bonds & Fixed Income';
+        }
+
+        return 'Market News';
+      }
+
+      /**
+       * Groups articles into sub-sections.
+       * @param {Object[]} articles
+       * @returns {Object}
+       */
+      function categorizeArticles(articles) {
+        const sections = {
+          'Stocks & Equities': [],
+          'Bonds & Fixed Income': [],
+          'Commodities': [],
+          'Currencies & Forex': [],
+          'Crypto & Digital Assets': [],
+          'Market News': [],
+        };
+
+        for (const article of articles) {
+          const title = (article.title || '').trim();
+          if (!title) continue;
+          const section = classifyArticle(article);
+          sections[section].push(title);
+        }
+
+        return sections;
+      }
+
+      /**
+       * Formats categorized news into a markdown string.
+       * @param {Object} categorized
+       * @param {string} marketLabel
+       * @returns {string}
+       */
+      function formatNews(categorized, marketLabel) {
+        const lines = [`# ${marketLabel} Share Market News`, ''];
+        for (const [section, items] of Object.entries(categorized)) {
+          if (items.length === 0) continue;
+          lines.push(`## ${section}`);
+          for (const item of items) {
+            lines.push(`- ${item}`);
+          }
+          lines.push('');
+        }
+        return lines.join('\n').trim();
+      }
+
+      window['ai_edge_gallery_get_result'] = async (data) => {
+        try {
+          const prompt = (data && data.prompt) || '';
+          const apiKey = await readApiKey();
+          const { countryCode, marketLabel } = resolveMarket(prompt);
+
+          const articles = await fetchMarketNews(apiKey, countryCode);
+
+          if (!articles.length) {
+            return JSON.stringify({
+              error: `No market news articles returned for ${marketLabel}. Try a different market or check your API key quota.`,
+            });
+          }
+
+          const categorized = categorizeArticles(articles);
+          const formattedNews = formatNews(categorized, marketLabel);
+
+          if (!formattedNews) {
+            return JSON.stringify({ error: 'No articles could be categorized.' });
+          }
+
+          return JSON.stringify({ result: formattedNews });
+        } catch (e) {
+          console.error(e);
+          return JSON.stringify({ error: `Failed to fetch share market news: ${e.message}` });
+        }
+      };
+    </script>
+  </body>
+</html>
