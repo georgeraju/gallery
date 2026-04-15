@@ -44,14 +44,29 @@ limitations under the License.
       }
 
       /**
-       * Fetches the latest news from newsdata.io for the configured categories.
-       * @param {string} apiKey - The newsdata.io API key.
+       * Fetches the latest news from newsdata.io.
+       *
+       * Parameters extracted from the user prompt (via `data`):
+       *   - q       {string} Keyword(s) to search. Supports exact phrases with double quotes
+       *                      and Boolean operators (AND, OR, NOT).
+       *                      Defaults to "business".
+       *   - country {string} ISO 3166-1 alpha-2 country code(s), comma-separated (max 5).
+       *                      Defaults to "us".
+       *
+       * Language is always fixed to "en" (US English).
+       *
+       * @param {string} apiKey  - The newsdata.io API key.
+       * @param {string} q       - Search query string.
+       * @param {string} country - Comma-separated country code(s).
        * @returns {Promise<Object[]>} Array of news article objects.
        */
-      async function fetchNews(apiKey) {
+      async function fetchNews(apiKey, q, country) {
         const url =
           `https://newsdata.io/api/1/latest?apikey=${encodeURIComponent(apiKey)}` +
-          `&language=en&category=breaking,business,entertainment,technology,environment&removeduplicate=1`;
+          `&language=en` +
+          `&country=${encodeURIComponent(country)}` +
+          `&q=${encodeURIComponent(q)}` +
+          `&removeduplicate=1`;
         const response = await fetch(url);
         if (!response.ok) {
           throw new Error(`newsdata.io API error: HTTP ${response.status}`);
@@ -76,15 +91,14 @@ limitations under the License.
           entertainment: 'Entertainment',
           technology: 'Technology',
           environment: 'Environment',
+          politics: 'Politics',
+          sports: 'Sports',
+          science: 'Science',
+          health: 'Health',
+          world: 'World',
         };
 
-        const categorized = {
-          'Breaking News': [],
-          'Business': [],
-          'Entertainment': [],
-          'Technology': [],
-          'Environment': [],
-        };
+        const categorized = {};
 
         for (const article of articles) {
           const title = (article.title || '').trim();
@@ -94,16 +108,20 @@ limitations under the License.
 
           let placed = false;
           for (const cat of articleCategories) {
-            const label = categoryLabels[cat.toLowerCase()];
-            if (label && categorized[label]) {
-              categorized[label].push(title);
-              placed = true;
+            const label = categoryLabels[cat.toLowerCase()] || cat;
+            if (!categorized[label]) {
+              categorized[label] = [];
             }
+            categorized[label].push(title);
+            placed = true;
           }
 
-          // If the article has no recognized category, add it to Breaking News as a fallback
+          // If the article has no recognized category, add it to General as a fallback
           if (!placed) {
-            categorized['Breaking News'].push(title);
+            if (!categorized['General']) {
+              categorized['General'] = [];
+            }
+            categorized['General'].push(title);
           }
         }
 
@@ -131,7 +149,13 @@ limitations under the License.
       window['ai_edge_gallery_get_result'] = async (data) => {
         try {
           const apiKey = await readApiKey();
-          const articles = await fetchNews(apiKey);
+
+          // Extract q and country from the user-supplied data object.
+          // Defaults: q="business", country="us". Language is always "en".
+          const q = (data && data.q && String(data.q).trim()) || 'business';
+          const country = (data && data.country && String(data.country).trim()) || 'us';
+
+          const articles = await fetchNews(apiKey, q, country);
 
           if (!articles.length) {
             return JSON.stringify({ error: 'No news articles returned from the API.' });
